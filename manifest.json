@@ -1,0 +1,27 @@
+{
+  "name": "نظام كاشير احترافي",
+  "short_name": "الكاشير",
+  "description": "نظام كاشير يعمل أونلاين وأوفلاين مع مزامنة Firebase",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "dir": "rtl",
+  "lang": "ar",
+  "background_color": "#eef3f9",
+  "theme_color": "#2563eb",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='192' height='192'%3E%3Crect width='192' height='192' rx='44' fill='%232563eb'/%3E%3Ctext x='50%25' y='58%25' text-anchor='middle' font-size='88' font-family='Arial' font-weight='bold' fill='white'%3Eك%3C/text%3E%3C/svg%3E",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='512' height='512'%3E%3Crect width='512' height='512' rx='120' fill='%232563eb'/%3E%3Ctext x='50%25' y='58%25' text-anchor='middle' font-size='240' font-family='Arial' font-weight='bold' fill='white'%3Eك%3C/text%3E%3C/svg%3E",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
