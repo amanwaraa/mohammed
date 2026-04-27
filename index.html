@@ -8301,6 +8301,29 @@ function bindEvents() {
         }
       });
     }
+    
+    
+    Object.assign(window, {
+  state,
+  cleanNumber,
+  money,
+  toast,
+  renderAll,
+  renderCart,
+  renderInventory,
+  calculateCartTotals,
+  getProductByBarcode,
+  normalizeProduct,
+  getDefaultSaleUnit,
+  getUnitFactor,
+  getUnitText,
+  saveLocal,
+  idbClear,
+  syncNow,
+  loadFirebaseOnce,
+  ensureCustomer,
+  addToCart
+});
 
     boot().catch((e) => {
       console.error(e);
@@ -8313,6 +8336,15 @@ function bindEvents() {
         progress: 0
       });
     });
+    
+    
+    
+    
+    
+    
+    
   </script>
+  <script src="./cashier-barcode-patch.js"></script>
+<script src="./cashier-storage-stock-patch.js"></script>
 </body>
 </html>
