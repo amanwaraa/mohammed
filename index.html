@@ -8305,37 +8305,41 @@ function bindEvents() {
     
     Object.assign(window, {
   state,
+  db,
+  ref,
+  set,
+  get,
+  remove,
+  onValue,
+  off,
+  FIREBASE_ROOT,
+  firebasePath,
   cleanNumber,
   money,
   toast,
   renderAll,
   renderCart,
   renderInventory,
-  calculateCartTotals,
-  getProductByBarcode,
-  normalizeProduct,
-  getDefaultSaleUnit,
-  getUnitFactor,
-  getUnitText,
-  saveLocal,
+  renderInvoices,
+  renderDebts,
+  renderPurchases,
+  renderSupplierPayments,
+  renderExpenses,
+  renderReports,
+  loadLocalData,
+  refreshPendingCount,
+  updateSyncUi,
+  idbPut,
+  idbGetAll,
+  idbDelete,
   idbClear,
+  saveLocal,
+  removeLocal,
+  enqueueSync,
   syncNow,
-  loadFirebaseOnce,
-  ensureCustomer,
-  addToCart
+  startRealtimeListeners,
+  rebuildCustomerBalances
 });
-
-    boot().catch((e) => {
-      console.error(e);
-      toast("حدث خطأ أثناء تشغيل التطبيق");
-      updateSyncUi({
-        spin: false,
-        visible: true,
-        title: "خطأ",
-        status: String(e?.message || e),
-        progress: 0
-      });
-    });
     
     
     
@@ -8344,6 +8348,7 @@ function bindEvents() {
     
     
   </script>
+  <script src="./cashier-sync-delete-patch.js"></script>
   <script src="./cashier-barcode-patch.js"></script>
 <script src="./cashier-storage-stock-patch.js"></script>
 </body>
