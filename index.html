@@ -3132,16 +3132,64 @@
     }
 
     async function removeLocal(store, id, sync = true) {
-      await idbDelete(store, id);
+  await idbDelete(store, id);
 
-      if (sync) {
-        await enqueueSync({
-          type: "remove",
-          store,
-          itemId: id
-        });
+  const stateKeyMap = {
+    products: "products",
+    invoices: "invoices",
+    customers: "customers",
+    expenses: "expenses",
+    purchases: "purchases",
+    supplierPayments: "supplierPayments",
+    paymentAccounts: "paymentAccounts"
+  };
+
+  const stateKey = stateKeyMap[store] || store;
+
+  if (Array.isArray(state[stateKey])) {
+    state[stateKey] = state[stateKey].filter(item => item.id !== id);
+  }
+
+  if (store === "products") {
+    state.cart = state.cart.filter(line => line.productId !== id);
+  }
+
+  if (sync) {
+    const queue = await idbGetAll("syncQueue");
+
+    for (const q of queue) {
+      if (q.store === store && q.itemId === id && q.type !== "remove") {
+        await idbDelete("syncQueue", q.id);
       }
     }
+
+    const alreadyQueued = queue.some(q =>
+      q.store === store &&
+      q.itemId === id &&
+      q.type === "remove"
+    );
+
+    if (!alreadyQueued) {
+      await enqueueSync({
+        type: "remove",
+        store,
+        itemId: id,
+        data: null
+      });
+    }
+  }
+
+  if (typeof rebuildCustomerBalances === "function") {
+    rebuildCustomerBalances(false);
+  }
+
+  renderAll();
+  await refreshPendingCount();
+
+  if (navigator.onLine) {
+    setTimeout(() => syncNow(false), 250);
+  }
+}
 
     function mapFirebaseObjectToArray(obj) {
       if (!obj) return [];
@@ -3366,80 +3414,113 @@
     }
 
     function startRealtimeListeners() {
-      if (state.realtimeStarted) return;
-      state.realtimeStarted = true;
+  if (state.realtimeStarted) return;
+  state.realtimeStarted = true;
 
-      const stores = [
-        "products",
-        "invoices",
-        "customers",
-        "expenses",
-        "purchases",
-        "supplierPayments",
-        "paymentAccounts"
-      ];
+  const stores = [
+    "products",
+    "invoices",
+    "customers",
+    "expenses",
+    "purchases",
+    "supplierPayments",
+    "paymentAccounts"
+  ];
 
-      stores.forEach((store) => {
-        onValue(ref(db, `${FIREBASE_ROOT}/${store}`), async (snap) => {
-          if (!snap.exists()) return;
+  function stateKeyForStore(store) {
+    const map = {
+      products: "products",
+      invoices: "invoices",
+      customers: "customers",
+      expenses: "expenses",
+      purchases: "purchases",
+      supplierPayments: "supplierPayments",
+      paymentAccounts: "paymentAccounts"
+    };
 
-          updateSyncUi({
-            spin: true,
-            title: "تنزيل تحديثات",
-            status: `وصل تحديث جديد: ${syncStoreLabel(store)}`,
-            progress: 25
-          });
+    return map[store] || store;
+  }
 
-          const count = await mergeStore(store, mapFirebaseObjectToArray(snap.val()), FIREBASE_ROOT);
+  async function hasPendingLocalOperation(store, itemId) {
+    const queue = await idbGetAll("syncQueue");
+    return queue.some(q => q.store === store && q.itemId === itemId);
+  }
 
-          if (count > 0) {
-            await loadLocalData(true);
-            renderAll();
+  async function applyRemoteSnapshot(store, remoteObj) {
+    const remoteMap = remoteObj || {};
+    const remoteIds = new Set(Object.keys(remoteMap));
+    const localItems = await idbGetAll(store);
+    const stateKey = stateKeyForStore(store);
 
-            updateSyncUi({
-              progress: 100,
-              status: `تم تنزيل ${count} تحديث`,
-              operation: {
-                store: syncStoreLabel(store),
-                text: `تحديث مباشر ${count}`,
-                done: true
-              }
-            });
-          }
+    for (const local of localItems) {
+      if (!local || !local.id) continue;
 
-          setTimeout(() => {
-            if (!state.syncing) updateSyncUi({ spin: false });
-          }, 700);
-        });
-      });
+      const pending = await hasPendingLocalOperation(store, local.id);
 
-      onValue(ref(db, `${FIREBASE_ROOT}/settings/main`), async (snap) => {
-        if (!snap.exists()) return;
+      if (!remoteIds.has(local.id) && !pending) {
+        await idbDelete(store, local.id);
 
+        if (Array.isArray(state[stateKey])) {
+          state[stateKey] = state[stateKey].filter(x => x.id !== local.id);
+        }
+
+        if (store === "products") {
+          state.cart = state.cart.filter(line => line.productId !== local.id);
+        }
+      }
+    }
+
+    for (let remote of Object.values(remoteMap)) {
+      if (!remote || !remote.id) continue;
+
+      const pending = await hasPendingLocalOperation(store, remote.id);
+      if (pending) continue;
+
+      if (store === "products") remote = normalizeProduct(remote);
+      if (store === "customers") remote = normalizeCustomer(remote);
+      if (store === "paymentAccounts") remote = normalizePaymentAccount(remote);
+
+      const localOld = localItems.find(x => x.id === remote.id);
+      const remoteTime = Number(remote.updatedAt || remote.createdAt || 0);
+      const localTime = Number(localOld?.updatedAt || localOld?.createdAt || 0);
+
+      if (!localOld || remoteTime >= localTime) {
+        await idbPut(store, remote);
+
+        if (Array.isArray(state[stateKey])) {
+          const i = state[stateKey].findIndex(x => x.id === remote.id);
+          if (i >= 0) state[stateKey][i] = remote;
+          else state[stateKey].push(remote);
+        }
+      }
+    }
+  }
+
+  stores.forEach((store) => {
+    onValue(ref(db, `${FIREBASE_ROOT}/${store}`), async (snap) => {
+      try {
         updateSyncUi({
           spin: true,
-          title: "تنزيل إعدادات",
-          status: "تنزيل إعدادات المحل",
+          title: "تنزيل تحديثات",
+          status: `تحديث ${syncStoreLabel(store)}...`,
           progress: 35
         });
 
-        const current = state.settings || (await idbGet("settings", "main")) || defaultSettings;
+        const remoteObj = snap.exists() ? (snap.val() || {}) : {};
 
-        await mergeStore("settings", [{
-          ...defaultSettings,
-          ...snap.val(),
-          localLogo: current.localLogo || "",
-          logoMode: current.localLogo ? "local" : (snap.val()?.logo ? "url" : "default")
-        }], FIREBASE_ROOT);
+        await applyRemoteSnapshot(store, remoteObj);
 
-        await loadLocalData(true);
+        if (typeof rebuildCustomerBalances === "function") {
+          rebuildCustomerBalances(false);
+        }
+
         renderAll();
 
         updateSyncUi({
           progress: 100,
-          status: "تم تحديث إعدادات المحل",
+          status: `تم تحديث ${syncStoreLabel(store)}`,
           operation: {
-            store: "الإعدادات",
+            store: syncStoreLabel(store),
             text: "تحديث مباشر",
             done: true
           }
@@ -3448,8 +3529,53 @@
         setTimeout(() => {
           if (!state.syncing) updateSyncUi({ spin: false });
         }, 700);
+      } catch (e) {
+        console.warn("Realtime sync error:", store, e);
+
+        updateSyncUi({
+          spin: false,
+          status: "تعذر تنزيل تحديث مباشر، سيتم المحاولة لاحقًا",
+          operation: {
+            store: syncStoreLabel(store),
+            text: "فشل تحديث مباشر",
+            done: false
+          }
+        });
+      }
+    });
+  });
+
+  onValue(ref(db, `${FIREBASE_ROOT}/settings/main`), async (snap) => {
+    if (!snap.exists()) return;
+
+    try {
+      const current = state.settings || (await idbGet("settings", "main")) || defaultSettings;
+      const remoteSettings = {
+        ...defaultSettings,
+        ...snap.val(),
+        localLogo: current.localLogo || "",
+        logoMode: current.localLogo ? "local" : (snap.val()?.logo ? "url" : "default")
+      };
+
+      await idbPut("settings", remoteSettings);
+      state.settings = remoteSettings;
+
+      renderAll();
+
+      updateSyncUi({
+        progress: 100,
+        status: "تم تحديث إعدادات المحل",
+        operation: {
+          store: "الإعدادات",
+          text: "تحديث مباشر",
+          done: true
+        }
       });
+    } catch (e) {
+      console.warn("settings realtime error", e);
     }
+  });
+}
 
     async function syncNow(showPopover = false) {
       if (state.syncing) return;
@@ -8305,24 +8431,32 @@ function bindEvents() {
     
     Object.assign(window, {
   state,
+  db,
+  ref,
+  set,
+  get,
+  remove,
+  onValue,
+  off,
+  FIREBASE_ROOT,
+  firebasePath,
   cleanNumber,
   money,
   toast,
   renderAll,
-  renderCart,
-  renderInventory,
-  calculateCartTotals,
-  getProductByBarcode,
-  normalizeProduct,
-  getDefaultSaleUnit,
-  getUnitFactor,
-  getUnitText,
-  saveLocal,
+  loadLocalData,
+  refreshPendingCount,
+  updateSyncUi,
+  idbPut,
+  idbGetAll,
+  idbDelete,
   idbClear,
+  saveLocal,
+  removeLocal,
+  enqueueSync,
   syncNow,
-  loadFirebaseOnce,
-  ensureCustomer,
-  addToCart
+  startRealtimeListeners,
+  rebuildCustomerBalances
 });
 
     boot().catch((e) => {
